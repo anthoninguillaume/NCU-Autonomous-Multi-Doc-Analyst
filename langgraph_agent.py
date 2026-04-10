@@ -120,21 +120,36 @@ def grade_documents_node(state: AgentState):
     documents = state["documents"]
     llm = get_llm()
 
-    system_prompt = """You are a grader assessing relevance. 
-    Does the retrieved document contain information related to the user question?
+    # Enhanced system prompt to ensure the LLM understands its role as a binary judge
+    system_prompt = """You are a grader assessing relevance of a retrieved document to a user question. 
+    If the document contains keyword(s) or semantic meaning related to the user question, grade it as relevant. 
+    Give a binary score 'yes' or 'no' score to indicate whether the document is relevant to the question.
     
-    CRITICAL: You must answer with ONLY one word: 'yes' or 'no'. Do not add any explanation."""
+    CRITICAL: You must answer with ONLY one word: 'yes' or 'no'. Do not add any explanation or punctuation."""
     
     msg = [
         SystemMessage(content=system_prompt),
         HumanMessage(content=f"Retrieved document context: \n\n {documents} \n\n User question: {question}")
     ]
     
-    response = llm.invoke(msg)
-    content = response.content.strip().lower()
+    try:
+        response = llm.invoke(msg)
+        content = response.content.strip().lower()
+        
+        # We look for the exact word to avoid false positives
+        if "yes" in content:
+            grade = "yes"
+        else:
+            grade = "no"
+            
+    except Exception as e:
+        print(colored(f"⚠️ Error during grading: {e}. Defaulting to 'no' to be safe.", "red"))
+        grade = "no"
     
-    grade = "yes" if "yes" in content else "no"
     print(f"   Relevance Grade: {grade}")
+    
+    # In LangGraph, we often use this grade to decide the next edge.
+    # We return 'no' if it needs a rewrite, 'yes' if it's good to generate.
     return {"needs_rewrite": grade}
 
 @retry_logic
