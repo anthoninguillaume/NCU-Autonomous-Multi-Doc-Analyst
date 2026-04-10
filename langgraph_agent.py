@@ -189,14 +189,29 @@ def rewrite_node(state: AgentState):
     question = state["question"]
     llm = get_llm()
     
+    system_instructions = (
+        "You are a financial search expert. Your goal is to rewrite vague user questions into "
+        "precise financial queries that will perform better in a vector database search. "
+        "Use professional terminology like 'Research and Development', 'Net Income', 'CAPEX', "
+        "or 'Operating Expenses' where appropriate. "
+        "\n\nOutput ONLY the rewritten question text without any preamble."
+    )
+    
     msg = [ 
-        HumanMessage(content=f"The previous search for '{question}' yielded irrelevant results. \n"
-                             f"Please rephrase this question to be more specific or use better keywords for a financial search engine. \n"
-                             f"Output ONLY the new question text.")
+        SystemMessage(content=system_instructions),
+        HumanMessage(content=f"The previous search for '{question}' yielded irrelevant results. "
+                             f"Please provide a more specific version of this question for a financial database.")
     ]
+    
     response = llm.invoke(msg)
     new_query = response.content.strip()
-    print(f"   New Question: {new_query}")
+    
+    # Remove surrounding quotes if the LLM accidentally adds them
+    new_query = new_query.replace('"', '').replace("'", "")
+    
+    print(colored(f"   Original: {question}", "dark_grey"))
+    print(colored(f"   New Question: {new_query}", "magenta"))
+    
     return {"question": new_query}
 
 def build_graph():
