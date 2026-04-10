@@ -230,6 +230,11 @@ Observation: the result of the action
 Thought: I now know the final answer
 Final Answer: the final answer to the original input question
 
+Specific Constraints:
+1. Language: The Final Answer must be written in English, regardless of the language used in the Question.
+2. Financial Year Precision: When analyzing financial tables, you must strictly distinguish between data from 2024, 2023, and 2022. Do not conflate different years.
+3. Honesty: If the exact 2024 financial data is not available in the provided tools or context, state clearly that the information is missing rather than guessing.
+
 Begin!
 
 Question: {input}
