@@ -120,36 +120,34 @@ def grade_documents_node(state: AgentState):
     documents = state["documents"]
     llm = get_llm()
 
-    # Enhanced system prompt to ensure the LLM understands its role as a binary judge
+    # If no documents were retrieved at all, don't bother asking the LLM
+    if not documents.strip():
+        print(colored("    Relevance Grade: no (Empty Documents)", "red"))
+        return {"needs_rewrite": "yes"}
+
     system_prompt = """You are a grader assessing relevance of a retrieved document to a user question. 
     If the document contains keyword(s) or semantic meaning related to the user question, grade it as relevant. 
-    Give a binary score 'yes' or 'no' score to indicate whether the document is relevant to the question.
+    Give a binary score 'yes' or 'no' to indicate whether the document is relevant to the question.
     
-    CRITICAL: You must answer with ONLY one word: 'yes' or 'no'. Do not add any explanation or punctuation."""
+    CRITICAL: You must answer with ONLY one word: 'yes' or 'no'. Do not add any explanation."""
     
     msg = [
         SystemMessage(content=system_prompt),
         HumanMessage(content=f"Retrieved document context: \n\n {documents} \n\n User question: {question}")
     ]
     
-    try:
-        response = llm.invoke(msg)
-        content = response.content.strip().lower()
+    response = llm.invoke(msg)
+    content = response.content.strip().lower()
+    
+    # Logic: If relevant (yes), then needs_rewrite is "no". 
+    # If irrelevant (no), then needs_rewrite is "yes".
+    if "yes" in content:
+        grade = "no" # No rewrite needed
+        print(colored(f"   Relevance Grade: YES (Proceeding)", "green"))
+    else:
+        grade = "yes" # Rewrite needed
+        print(colored(f"   Relevance Grade: NO (Triggering Rewrite)", "red"))
         
-        # We look for the exact word to avoid false positives
-        if "yes" in content:
-            grade = "yes"
-        else:
-            grade = "no"
-            
-    except Exception as e:
-        print(colored(f"⚠️ Error during grading: {e}. Defaulting to 'no' to be safe.", "red"))
-        grade = "no"
-    
-    print(f"   Relevance Grade: {grade}")
-    
-    # In LangGraph, we often use this grade to decide the next edge.
-    # We return 'no' if it needs a rewrite, 'yes' if it's good to generate.
     return {"needs_rewrite": grade}
 
 @retry_logic
@@ -159,15 +157,30 @@ def generate_node(state: AgentState):
     documents = state["documents"]
     llm = get_llm() 
     
+    # We refine the prompt to enforce English and strict citation formatting
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a financial analyst. Use the provided context to answer the question. \n"
-                   "If the context doesn't contain the answer, say you don't know. \n"
-                   "ALWAYS cite the source in brackets (e.g., [Source: Apple]).\n\nContext:\n{context}"),
+        ("system", (
+            "You are a professional financial analyst. Use ONLY the provided context to answer the question. "
+            "Follow these strict rules:\n"
+            "1. LANGUAGE: The entire response must be in English.\n"
+            "2. CITATIONS: You must cite the specific source for every claim using brackets, "
+            "for example: [Source: Apple] or [Source: Tesla].\n"
+            "3. HONESTY: If the information required to answer the question is not present in the context, "
+            "honestly state: 'I am sorry, but I do not have the specific 2024 data to answer this question.'\n"
+            "4. PRECISION: Pay close attention to fiscal years (2022, 2023, 2024) mentioned in the context.\n\n"
+            "Context:\n{context}"
+        )),
         ("human", "{question}"),
     ])
     
     chain = prompt | llm
-    response = chain.invoke({"context": documents, "question": question})
+    
+    # We pass the documents retrieved and graded in previous nodes
+    response = chain.invoke({
+        "context": documents, 
+        "question": question
+    })
+    
     return {"generation": response.content}
 
 @retry_logic
