@@ -54,26 +54,40 @@ def retrieve_node(state: AgentState):
     llm = get_llm()
     
     # --- [START] Improved Routing Logic ---
-    options = list(FILES.keys()) + ["both", "none"]
-    router_prompt = f"""
-    Analyze the user question and route it to the correct data source.
-    Options: {', '.join(options)}.
+    # We define the categories clearly for the LLM
+    options = ["apple", "tesla", "both", "none"]
     
-    Output ONLY valid JSON: {{"datasource": "..."}}
+    router_prompt = f"""
+    You are an expert query router. Your job is to classify the user's question into one of these four categories: {options}.
+
+    Classification Rules:
+    - "apple": The question is strictly about Apple Inc. (e.g., iPhone, Mac, Services).
+    - "tesla": The question is strictly about Tesla Inc. (e.g., EV, Model Y, Energy).
+    - "both": The question compares both companies or asks for information involving both.
+    - "none": The question is unrelated to either company's financial or product data.
+
+    Output ONLY valid JSON: {{"datasource": "chosen_category"}}
+    
     User Question: {question}
     """
     
     try:
         response = llm.invoke(router_prompt)
         content = response.content.strip()
-        # Handle cases where LLM might wrap JSON in backticks
+        
+        # Handle cases where LLM might wrap JSON in markdown blocks
         if "```json" in content:
             content = content.split("```json")[1].split("```")[0].strip()
         elif "```" in content:
             content = content.split("```")[1].split("```")[0].strip()
             
         res_json = json.loads(content)
-        target = res_json.get("datasource", "both")
+        target = res_json.get("datasource", "both").lower()
+        
+        # Final validation to ensure the LLM didn't hallucinate a category
+        if target not in options:
+            target = "both"
+            
     except Exception as e:
         print(colored(f"⚠️ Error parsing router output: {e}. Defaulting to 'both'.", "yellow"))
         target = "both"
@@ -83,10 +97,13 @@ def retrieve_node(state: AgentState):
 
     docs_content = ""
     targets_to_search = []
+    
+    # Logic to handle the 'both' or specific retriever case
     if target == "both":
         targets_to_search = list(FILES.keys())
     elif target in FILES:
         targets_to_search = [target]
+    # If 'none', targets_to_search remains empty, returning no documents
     
     for t in targets_to_search:
         if t in RETRIEVERS:
